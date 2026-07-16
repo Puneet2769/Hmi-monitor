@@ -51,8 +51,8 @@ SMTP_PASS = os.environ.get("SMTP_PASS", "")
 EMAIL_TO = os.environ.get("EMAIL_TO", "")
 
 # Push notification via ntfy.sh (free, no signup — pick any unique topic name)
-NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "Hmi-Monitor")
-NTFY_SERVER = os.environ.get("NTFY_SERVER") or "https://ntfy.sh/Hmi-Monitor"
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
+NTFY_SERVER = os.environ.get("NTFY_SERVER") or "https://ntfy.sh"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; CourseAvailabilityMonitor/1.0)"
