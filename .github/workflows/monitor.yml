@@ -5,7 +5,12 @@ on:
     # Runs once a day at 08:00 UTC. Adjust the cron time as you like —
     # e.g. IST is UTC+5:30, so 02:30 UTC = 08:00 AM IST.
     - cron: "30 2 * * *"
-  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (print parsed courses only, send nothing)"
+        type: boolean
+        default: false
 
 jobs:
   check:
@@ -33,4 +38,9 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_SERVER: ${{ vars.NTFY_SERVER }}
-        run: python3 monitor.py
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python3 monitor.py --dry-run
+          else
+            python3 monitor.py
+          fi
