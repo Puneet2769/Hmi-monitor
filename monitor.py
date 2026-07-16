@@ -247,10 +247,13 @@ def main():
 
     if not matched:
         log.warning(
-            "No course matched COURSE_FILTER=%r — check the filter text "
-            "against the course names printed by --dry-run.",
+            "No course matched COURSE_FILTER=%r. Here's every course this "
+            "run actually parsed, so we can see what the real name/category "
+            "text looks like:",
             COURSE_FILTER,
         )
+        for cid, c in courses.items():
+            log.warning("  [%s] name=%r category=%r availability=%r", cid, c["name"], c["category"], c["availability_text"])
         return
 
     lines = []
