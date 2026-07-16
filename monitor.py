@@ -78,6 +78,62 @@ def fetch_page(url: str) -> str:
     return resp.text
 
 
+def extract_table_field(table, header_name: str, apply_link) -> str:
+    """
+    Reads a course's data table structurally: maps the header row's column
+    names to the matching data row's cell values by position, then returns
+    the value for `header_name` (e.g. "Date", "Availability").
+
+    This avoids a bug from an earlier version, which searched the whole
+    table's concatenated text with a regex — that could match the HEADER
+    row's label (e.g. find "Date" then grab whatever text followed it,
+    which was actually the *next column's header*, "Age") instead of the
+    real data value. Mapping columns by index guarantees we read from the
+    data row, not the header row.
+    """
+    if table is None:
+        return ""
+    rows = table.find_all("tr")
+    if not rows:
+        return ""
+
+    headers = [c.get_text(strip=True) for c in rows[0].find_all(["th", "td"])]
+
+    # The data row is whichever row actually contains the Apply link —
+    # more reliable than assuming it's "the last row", in case of extra
+    # rows (e.g. a merged notes row).
+    data_row = None
+    for row in rows:
+        if row.find("a", href=re.compile(r"add-to-cart=\d+")) is apply_link or apply_link in row.find_all("a"):
+            data_row = row
+            break
+    if data_row is None and len(rows) > 1:
+        data_row = rows[-1]
+    if data_row is None:
+        return ""
+
+    data_cells = [c.get_text(strip=True) for c in data_row.find_all(["td", "th"])]
+
+    if header_name in headers:
+        idx = headers.index(header_name)
+        if idx < len(data_cells):
+            value = data_cells[idx]
+            # Some responsive-table markup repeats the column label inside
+            # each data cell (e.g. "Date01 Apr - 28 Apr 2026") for mobile
+            # view — strip that duplicate prefix if present.
+            if value.lower().startswith(header_name.lower()):
+                value = value[len(header_name):].strip()
+            return value
+
+    # Fallback: regex within the data row's own text only (never the
+    # header row), scoped so it can't grab an adjacent header/label.
+    row_text = data_row.get_text(separator="|", strip=True)
+    if header_name.lower() == "availability":
+        m = re.search(r"(Closed|\d+\s*Available)", row_text)
+        return m.group(1) if m else ""
+    return ""
+
+
 def parse_availability(html: str) -> dict:
     """
     Returns a dict keyed by a stable course id -> course info dict:
@@ -94,32 +150,67 @@ def parse_availability(html: str) -> dict:
         ...
       }
 
-    Strategy: every course "Apply" button is a link containing
-    'add-to-cart=<id>'. That id is a stable per-course-run identifier.
-    We find each such link, then look at the table it sits in, and the
-    nearest preceding heading for the course name/category.
+    Strategy: the page's raw HTML tree order does NOT match its visual
+    reading order (Elementor renders sidebar/filter widgets out of
+    visual sequence), so walking "backward through the DOM" from a
+    table to find its heading is unreliable — it can wander into
+    unrelated widgets.
+
+    Instead: the literal text "Course Name :" appears exactly once per
+    course, immediately before that course's own number/name, category,
+    and data table — and nothing else on the page emits that exact
+    phrase. So we split the raw HTML on that marker first. Each
+    resulting chunk is a small, self-contained fragment covering ONE
+    course only, and everything we search for in it (name, category
+    link, table, apply link) is guaranteed to belong to that course —
+    no cross-page contamination possible.
     """
-    soup = BeautifulSoup(html, "html.parser")
     courses = {}
 
-    apply_links = soup.find_all("a", href=re.compile(r"add-to-cart=\d+"))
+    # Split on the marker text (tolerant of a missing/extra colon or
+    # surrounding whitespace, since it may be wrapped in <strong>/<h2> tags).
+    chunks = re.split(r"Course\s*Name\s*:?", html, flags=re.IGNORECASE)
 
-    for link in apply_links:
-        m = re.search(r"add-to-cart=(\d+)", link.get("href", ""))
+    for chunk in chunks[1:]:  # chunks[0] is the preamble before the first course
+        frag = BeautifulSoup(chunk, "html.parser")
+
+        apply_link = frag.find("a", href=re.compile(r"add-to-cart=\d+"))
+        if apply_link is None:
+            # Not a real course chunk (e.g. trailing footer content, or the
+            # "Name of the Course" enquiry form field — different text, but
+            # just in case) — skip it.
+            continue
+
+        m = re.search(r"add-to-cart=(\d+)", apply_link.get("href", ""))
         if not m:
             continue
         course_id = m.group(1)
 
-        # Find the enclosing table (holds Duration/Date/.../Availability/Apply)
-        table = link.find_parent("table")
-        if table is None:
-            continue
+        # Category: the course-category link, always present right after
+        # the course name/number in every course block.
+        cat_link = frag.find("a", href=re.compile(r"course-category"))
+        category = cat_link.get_text(strip=True) if cat_link else ""
 
-        table_text = table.get_text(separator="|", strip=True)
+        # Name: all text between the start of this chunk and the category
+        # link (i.e. everything before we hit the category link's own
+        # text) — this is exactly the course number/name, nothing else,
+        # since the chunk starts right after "Course Name :".
+        if cat_link is not None:
+            name_parts = []
+            for node in frag.find_all(string=True):
+                if node.parent is cat_link or node in cat_link.find_all(string=True):
+                    break
+                text = node.strip()
+                if text:
+                    name_parts.append(text)
+            name = " ".join(name_parts).strip()
+        else:
+            name = frag.get_text(strip=True)[:80]
 
-        # Availability text: look for "Closed" or "N Available" in the table
-        avail_match = re.search(r"(Closed|\d+\s*Available)", table_text)
-        availability_text = avail_match.group(1) if avail_match else "Unknown"
+        # Table holding Duration/Date/Age/Capacity/Course Fee/Availability/Apply
+        table = apply_link.find_parent("table")
+        availability_text = extract_table_field(table, "Availability", apply_link) or "Unknown"
+        date_text = extract_table_field(table, "Date", apply_link) or ""
 
         seats = None
         closed = availability_text.strip().lower() == "closed"
@@ -132,35 +223,6 @@ def parse_availability(html: str) -> dict:
                 if seats == 0:
                     closed = True
 
-        # Date: text between "Date" label occurrences (best-effort)
-        date_match = re.search(r"Date\|?\s*([0-9A-Za-z\s\-–,]+?)\|", table_text)
-        date_text = date_match.group(1).strip() if date_match else ""
-
-        # Find course name + category from headings/links before this table
-        name = ""
-        category = ""
-        node = table
-        steps = 0
-        while node is not None and steps < 40:
-            node = node.find_previous(["h1", "h2", "h3", "h4", "strong", "a"])
-            steps += 1
-            if node is None:
-                break
-            text = node.get_text(strip=True)
-            if not text:
-                continue
-            # Category links point at /course-category/
-            if node.name == "a" and "course-category" in node.get("href", "") and not category:
-                category = text
-                continue
-            # Course name is a short heading/strong, not the "Course Name :" label itself
-            if text.lower() not in ("course name :", "course name:") and not name:
-                # crude guard against picking up nav/footer text
-                if len(text) < 80:
-                    name = text
-            if name and category:
-                break
-
         courses[course_id] = {
             "name": name or f"Course #{course_id}",
             "category": category,
@@ -168,7 +230,7 @@ def parse_availability(html: str) -> dict:
             "availability_text": availability_text,
             "seats_available": seats,
             "closed": closed,
-            "apply_url": link.get("href", ""),
+            "apply_url": apply_link.get("href", ""),
         }
 
     return courses
