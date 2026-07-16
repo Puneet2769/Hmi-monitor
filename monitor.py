@@ -271,13 +271,18 @@ def send_push(title: str, body: str) -> None:
     if not NTFY_TOPIC:
         log.info("ntfy topic not configured — skipping push notification.")
         return
+    # HTTP headers must be latin-1/ASCII only — strip characters like
+    # em-dashes (—) that would otherwise crash requests with a
+    # UnicodeEncodeError.
+    safe_title = title.encode("ascii", "ignore").decode("ascii")
     try:
-        requests.post(
+        resp = requests.post(
             f"{NTFY_SERVER}/{NTFY_TOPIC}",
             data=body.encode("utf-8"),
-            headers={"Title": title, "Priority": "high"},
+            headers={"Title": safe_title, "Priority": "high"},
             timeout=15,
         )
+        resp.raise_for_status()
         log.info("Push notification sent to ntfy topic '%s'", NTFY_TOPIC)
     except Exception as e:
         log.error("Failed to send push notification: %s", e)
