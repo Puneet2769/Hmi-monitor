@@ -4,7 +4,7 @@ on:
   schedule:
     # Runs once a day at 08:00 UTC. Adjust the cron time as you like —
     # e.g. IST is UTC+5:30, so 02:30 UTC = 08:00 AM IST.
-    - cron: "30 2 * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
