@@ -24,31 +24,35 @@ from bs4 import BeautifulSoup
 
 # ---------------------------------------------------------------------------
 # Configuration (all read from environment variables — see .env.example)
+#
+# NOTE: GitHub Actions passes an unset repo Variable through as an EMPTY
+# STRING, not a missing key — so os.environ.get("X", "default") would
+# silently return "" instead of "default" in that case. We use
+# `os.environ.get("X") or "default"` everywhere instead, which falls
+# back correctly whether the variable is unset OR set-but-blank.
 # ---------------------------------------------------------------------------
-URL = os.environ.get(
-    "TARGET_URL",
-    "https://admission.hmidarjeeling.com/online-admission-2026-2027/",
-)
+URL = os.environ.get("TARGET_URL") or "https://admission.hmidarjeeling.com/online-admission-2026-2027/"
 
-LOG_FILE = os.environ.get("LOG_FILE", os.path.join(os.path.dirname(__file__), "monitor.log"))
+LOG_FILE = os.environ.get("LOG_FILE") or os.path.join(os.path.dirname(__file__), "monitor.log")
 
 # Which course(s) to report on, every single day. Matches against the
 # course name + category (case-insensitive substring match).
-# Default "379" + "Men only" narrows it to exactly course 379 (Men only)
-# and won't accidentally match a different course that also has "379"
-# somewhere in unrelated text.
-COURSE_FILTER = os.environ.get("COURSE_FILTER", "379")
+# Default "379" narrows it to course 379 (Men only). To watch every
+# course instead, set the COURSE_FILTER repo Variable to "*".
+COURSE_FILTER = os.environ.get("COURSE_FILTER") or "379"
+if COURSE_FILTER == "*":
+    COURSE_FILTER = ""
 
 # Email (SMTP) settings
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_HOST = os.environ.get("SMTP_HOST") or "smtp.gmail.com"
+SMTP_PORT = int(os.environ.get("SMTP_PORT") or "587")
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASS = os.environ.get("SMTP_PASS", "")
 EMAIL_TO = os.environ.get("EMAIL_TO", "")
 
 # Push notification via ntfy.sh (free, no signup — pick any unique topic name)
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
-NTFY_SERVER = os.environ.get("NTFY_SERVER", "https://ntfy.sh")
+NTFY_SERVER = os.environ.get("NTFY_SERVER") or "https://ntfy.sh"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; CourseAvailabilityMonitor/1.0)"
