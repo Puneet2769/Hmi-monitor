@@ -1,0 +1,36 @@
+name: HMI Course Availability Monitor
+
+on:
+  schedule:
+    # Runs once a day at 08:00 UTC. Adjust the cron time as you like —
+    # e.g. IST is UTC+5:30, so 02:30 UTC = 08:00 AM IST.
+    - cron: "30 2 * * *"
+  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run daily availability report
+        env:
+          TARGET_URL: ${{ vars.TARGET_URL }}
+          COURSE_FILTER: ${{ vars.COURSE_FILTER }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_SERVER: ${{ vars.NTFY_SERVER }}
+        run: python3 monitor.py
